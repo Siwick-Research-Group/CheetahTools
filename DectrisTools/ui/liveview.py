@@ -173,6 +173,8 @@ class LiveViewUi(QtWidgets.QMainWindow):
         self.actionCmodeNormal.setShortcut("Ctrl+4")
         self.actionCmodeRetrigger.setShortcut("Ctrl+5")
 
+        self.actionDestination.triggered.connect(self.update_destination)
+
     @QtCore.pyqtSlot(tuple)
     def update_label_intensity(self, xy):
         if self.image is None or xy == (np.NaN, np.NaN):
@@ -277,6 +279,13 @@ class LiveViewUi(QtWidgets.QMainWindow):
             self.cheetah_image_grabber.Q.frame_time = time
         else:
             log.warning(f"could not change exposure time, detector disconnected")
+
+    @interrupt_acquisition
+    def update_destination(self):
+        old_dest = self.cheetah_image_grabber.C.Server.Destination
+        dest, valid = QtWidgets.QInputDialog.getMultiLineText(self, "destination", "set new destination", old_dest)
+        if valid:
+            self.cheetah_image_grabber.C.Server.Destination = dest
 
     @QtCore.pyqtSlot()
     def start_acquisition(self):
