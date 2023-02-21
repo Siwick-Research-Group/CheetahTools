@@ -78,13 +78,6 @@
     <property name="title">
      <string>Detector</string>
     </property>
-    <widget class="QMenu" name="menuCounting_Mode">
-     <property name="title">
-      <string>Counting Mode</string>
-     </property>
-     <addaction name="actionCmodeNormal"/>
-     <addaction name="actionCmodeRetrigger"/>
-    </widget>
     <widget class="QMenu" name="menuTrigger_Mode">
      <property name="toolTip">
       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;INTS - Internal Software Trigger&lt;/p&gt;&lt;p&gt;the detector is not synced with anything and consecutively takes images&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;EXTS - Externally Triggered Exposure Series&lt;/p&gt;&lt;p&gt;the detector will take an image with the set exposure time, beginning with the rising edge of the trigger signal&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;EXTE - Externally Enabled Exposure Series&lt;/p&gt;&lt;p&gt;the detector will take an image with the rising edge of the trigger, exposure will stop with falling edge of the trigger&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
@@ -97,9 +90,10 @@
      <addaction name="actionEXTE"/>
     </widget>
     <addaction name="menuTrigger_Mode"/>
-    <addaction name="menuCounting_Mode"/>
+    <addaction name="actionDestination"/>
     <addaction name="separator"/>
     <addaction name="actionStop"/>
+    <addaction name="actionstart"/>
    </widget>
    <addaction name="menuROI"/>
    <addaction name="menuView"/>
@@ -217,7 +211,7 @@
     <bool>true</bool>
    </property>
    <property name="checked">
-    <bool>true</bool>
+    <bool>false</bool>
    </property>
    <property name="text">
     <string>stop</string>
@@ -292,6 +286,22 @@
    </property>
    <property name="text">
     <string>Pin Histogram Zero</string>
+   </property>
+  </action>
+  <action name="actionstart">
+   <property name="checkable">
+    <bool>false</bool>
+   </property>
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>start</string>
+   </property>
+  </action>
+  <action name="actionDestination">
+   <property name="text">
+    <string>Destination</string>
    </property>
   </action>
  </widget>

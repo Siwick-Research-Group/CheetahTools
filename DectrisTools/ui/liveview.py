@@ -5,8 +5,7 @@ from PyQt5 import QtWidgets, QtCore, QtGui, uic
 import pyqtgraph as pg
 from .. import get_base_path
 from ..lib.uiutils import (
-    DectrisImageGrabber,
-    DectrisStatusGrabber,
+    CheetahImageGrabber,
     interrupt_acquisition,
     RectROI,
 )
@@ -46,26 +45,24 @@ class LiveViewUi(QtWidgets.QMainWindow):
 
         self.lineEditExposure = QtWidgets.QLineEdit()
         self.lineEditExposure.setText("300")
-        self.dectris_image_grabber = DectrisImageGrabber(
+        self.cheetah_image_grabber = CheetahImageGrabber(
             cmd_args.ip,
             cmd_args.port,
-            trigger_mode="ints",
-            exposure=float(self.lineEditExposure.text()) / 1000,
         )
-        if self.dectris_image_grabber.connected:
-            if self.dectris_image_grabber.Q.counting_mode == "normal":
+        if self.cheetah_image_grabber.connected:
+            if self.cheetah_image_grabber.Q.counting_mode == "normal":
                 self.actionCmodeNormal.setChecked(True)
-            elif self.dectris_image_grabber.Q.counting_mode == "retrigger":
+            elif self.cheetah_image_grabber.Q.counting_mode == "retrigger":
                 self.actionCmodeRetrigger.setChecked(True)
-        self.dectris_status_grabber = DectrisStatusGrabber(cmd_args.ip, cmd_args.port)
+        # self.dectris_status_grabber = DectrisStatusGrabber(cmd_args.ip, cmd_args.port)
 
         self.image_timer = QtCore.QTimer()
-        self.image_timer.timeout.connect(self.dectris_image_grabber.image_grabber_thread.start)
-        self.dectris_image_grabber.image_ready.connect(self.update_image)
+        self.image_timer.timeout.connect(self.cheetah_image_grabber.image_grabber_thread.start)
+        self.cheetah_image_grabber.image_ready.connect(self.update_image)
 
         self.status_timer = QtCore.QTimer()
-        self.status_timer.timeout.connect(self.dectris_status_grabber.status_grabber_thread.start)
-        self.dectris_status_grabber.status_ready.connect(self.update_status_labels)
+        # self.status_timer.timeout.connect(self.dectris_status_grabber.status_grabber_thread.start)
+        # self.dectris_status_grabber.status_ready.connect(self.update_status_labels)
 
         self.lineEditExposure.returnPressed.connect(self.update_exposure)
 
@@ -100,9 +97,9 @@ class LiveViewUi(QtWidgets.QMainWindow):
         self.hide()
         self.image_timer.stop()
         self.status_timer.stop()
-        self.dectris_image_grabber.image_grabber_thread.requestInterruption()
-        self.dectris_status_grabber.status_grabber_thread.wait()
-        self.dectris_image_grabber.image_grabber_thread.wait()
+        self.cheetah_image_grabber.image_grabber_thread.requestInterruption()
+        # self.dectris_status_grabber.status_grabber_thread.wait()
+        self.cheetah_image_grabber.image_grabber_thread.wait()
         super().closeEvent(evt)
 
     def init_statusbar(self):
@@ -216,21 +213,21 @@ class LiveViewUi(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot()
     def capture_image(self):
         log.info("capturing image")
-        if self.dectris_image_grabber.connected:
-            if self.dectris_image_grabber.Q.trigger_mode == "ints":
+        if self.cheetah_image_grabber.connected:
+            if self.cheetah_image_grabber.Q.trigger_mode == "ints":
                 try:
                     time = float(self.lineEditCapture.text()) / 1000
                 except (ValueError, TypeError):
                     log.warning(f"image capture: cannot convert {self.lineEditCapture.text()} to float")
                     return
 
-                self.dectris_image_grabber.Q.trigger_mode = "ints"
-                self.dectris_image_grabber.Q.count_time = time
-                self.dectris_image_grabber.Q.frame_time = time
+                self.cheetah_image_grabber.Q.trigger_mode = "ints"
+                self.cheetah_image_grabber.Q.count_time = time
+                self.cheetah_image_grabber.Q.frame_time = time
 
-                self.dectris_image_grabber.image_ready.disconnect(self.update_image)
-                self.dectris_image_grabber.image_ready.connect(self.show_captured_image)
-                self.dectris_image_grabber.image_grabber_thread.start()
+                self.cheetah_image_grabber.image_ready.disconnect(self.update_image)
+                self.cheetah_image_grabber.image_ready.connect(self.show_captured_image)
+                self.cheetah_image_grabber.image_grabber_thread.start()
 
     @interrupt_acquisition
     @QtCore.pyqtSlot()
@@ -252,18 +249,18 @@ class LiveViewUi(QtWidgets.QMainWindow):
                 mode = "exte"
                 self.lineEditExposure.setEnabled(False)
             log.info(f"changing trigger mode to {mode}")
-            if self.dectris_image_grabber.connected:
-                self.dectris_image_grabber.Q.trigger_mode = mode
+            if self.cheetah_image_grabber.connected:
+                self.cheetah_image_grabber.Q.trigger_mode = mode
             else:
                 log.warning(f"could not change trigger mode, detector disconnected")
 
     @QtCore.pyqtSlot()
     def update_counting_mode(self):
-        if self.dectris_image_grabber.connected:
+        if self.cheetah_image_grabber.connected:
             if self.actionCmodeNormal.isChecked():
-                self.dectris_image_grabber.Q.counting_mode = "normal"
+                self.cheetah_image_grabber.Q.counting_mode = "normal"
             else:
-                self.dectris_image_grabber.Q.counting_mode = "retrigger"
+                self.cheetah_image_grabber.Q.counting_mode = "retrigger"
 
     @interrupt_acquisition
     @QtCore.pyqtSlot()
@@ -275,15 +272,15 @@ class LiveViewUi(QtWidgets.QMainWindow):
             return
 
         log.info(f"changing exporue time to {time}")
-        if self.dectris_image_grabber.connected:
-            self.dectris_image_grabber.Q.count_time = time
-            self.dectris_image_grabber.Q.frame_time = time
+        if self.cheetah_image_grabber.connected:
+            self.cheetah_image_grabber.Q.count_time = time
+            self.cheetah_image_grabber.Q.frame_time = time
         else:
             log.warning(f"could not change exposure time, detector disconnected")
 
     @QtCore.pyqtSlot()
     def start_acquisition(self):
-        self.dectris_image_grabber.image_grabber_thread.start()
+        self.cheetah_image_grabber.image_grabber_thread.start()
 
     @QtCore.pyqtSlot()
     def add_rect_roi(self):
@@ -345,7 +342,7 @@ class LiveViewUi(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot()
     def start_acquisition(self):
-        self.dectris_image_grabber.image_grabber_thread.start()
+        self.cheetah_image_grabber.image_grabber_thread.start()
 
     @QtCore.pyqtSlot()
     def remove_last_roi(self):
