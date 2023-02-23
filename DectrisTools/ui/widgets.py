@@ -263,3 +263,13 @@ class ROIView(pg.GraphicsLayoutWidget):
         else:
             for p in self.plots:
                 p.setYLink(None)
+
+
+class QEvaluatedDialog(QtWidgets.QInputDialog):
+    def __init__(self, *args, **kwargs):
+        self.textValueChange.connect(self.__eval_text)
+        super().__init__(*args, **kwargs)
+
+    @pyqtSlot(str)
+    def __eval_text(self, text):
+        print(text)

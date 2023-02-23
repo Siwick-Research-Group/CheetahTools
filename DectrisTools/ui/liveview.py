@@ -9,7 +9,7 @@ from ..lib.uiutils import (
     interrupt_acquisition,
     RectROI,
 )
-from .widgets import ROIView
+from .widgets import ROIView, QEvaluatedDialog
 
 
 class LiveViewUi(QtWidgets.QMainWindow):
@@ -283,7 +283,7 @@ class LiveViewUi(QtWidgets.QMainWindow):
     @interrupt_acquisition
     def update_destination(self):
         old_dest = self.cheetah_image_grabber.C.Server.Destination
-        dest, valid = QtWidgets.QInputDialog.getMultiLineText(self, "destination", "set new destination", old_dest)
+        dest, valid = QEvaluatedDialog.getMultiLineText(self, "destination", "set new destination", old_dest)
         if valid:
             self.cheetah_image_grabber.C.Server.Destination = dest
 
