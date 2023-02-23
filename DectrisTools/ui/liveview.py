@@ -1,8 +1,10 @@
 from os import path
 import logging as log
+import json
 import numpy as np
 from PyQt5 import QtWidgets, QtCore, QtGui, uic
 import pyqtgraph as pg
+from uedinst.cheetah import strip_awareattrdict
 from .. import get_base_path
 from ..lib.uiutils import (
     CheetahImageGrabber,
@@ -283,8 +285,13 @@ class LiveViewUi(QtWidgets.QMainWindow):
     @interrupt_acquisition
     def update_destination(self):
         old_dest = self.cheetah_image_grabber.C.Server.Destination
+        old_dest = strip_awareattrdict(old_dest)
+        old_dest = json.dumps(old_dest, indent=4)
+        old_dest = old_dest.replace("true", "True")
         dest, valid = QEvaluatedDialog.getMultiLineText(self, "destination", "set new destination", old_dest)
         if valid:
+            dest = dest.replace("true", "True")
+            dest = eval(dest)
             self.cheetah_image_grabber.C.Server.Destination = dest
 
     @QtCore.pyqtSlot()

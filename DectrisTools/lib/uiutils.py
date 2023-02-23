@@ -56,9 +56,11 @@ class CheetahImageGrabber(QObject):
         #     self.Q.ntrigger = 1
 
         self.C._Cheetah__update_info()
+        self.C.stop()
         self.C.Detector.Config.nTriggers = 1
         self.C.Detector.Config.ExposureTime = exposure
-        self.C.Detector.Config.TriggerPeriod = exposure
+        self.C.Detector.Config.TriggerPeriod = exposure + 0.002 # hardware limitation
+        self.C.Detector.Config.TriggerMode = "AUTOTRIGSTART_TIMERSTOP"
 
         self.image_grabber_thread = QThread()
         self.moveToThread(self.image_grabber_thread)
@@ -69,7 +71,13 @@ class CheetahImageGrabber(QObject):
         """
         image collection method
         """
+        print(self.C.Measurement.Info.Status)
+        print("starting measurement")
         self.C.start()
+        sleep(0.05)
+        while True:
+            if self.C.Measurement.Info.Status == "DA_IDLE":
+                break
         # log.debug(f"started image_grabber_thread {self.image_grabber_thread.currentThread()}")
         # self.C.ntrigger = 1
         # self.C.arm()
@@ -90,8 +98,8 @@ class CheetahImageGrabber(QObject):
         #         self.image_grabber_thread.quit()
         #         return
         #     sleep(0.05)
-        self.image_ready.emit(monitor_to_array(self.C.mon.last_image))
-        self.C.mon.clear()
+
+        # self.image_ready.emit(monitor_to_array(self.C.mon.last_image))
 
         self.image_grabber_thread.quit()
         log.debug(f"quit image_grabber_thread {self.image_grabber_thread.currentThread()}")
