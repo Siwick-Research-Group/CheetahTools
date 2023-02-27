@@ -267,8 +267,9 @@ class ROIView(pg.GraphicsLayoutWidget):
 
 class QEvaluatedDialog(QtWidgets.QInputDialog):
     def __init__(self, *args, **kwargs):
-        self.textValueChange.connect(self.__eval_text)
         super().__init__(*args, **kwargs)
+        self.setInputMode(0)  # text input
+        self.textValueChanged.connect(self.__eval_text)
 
     @pyqtSlot(str)
     def __eval_text(self, text):

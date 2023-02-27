@@ -5,6 +5,7 @@ from time import sleep
 import logging as log
 import io
 from collections import deque
+import requests
 from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QThread
 from PyQt5.QtWidgets import QAction, QMenu
 import numpy as np
@@ -71,13 +72,21 @@ class CheetahImageGrabber(QObject):
         """
         image collection method
         """
-        print(self.C.Measurement.Info.Status)
         print("starting measurement")
-        self.C.start()
+        self.C._Cheetah__update_info()
+        self.C.preview()
         sleep(0.05)
         while True:
             if self.C.Measurement.Info.Status == "DA_IDLE":
                 break
+
+        response = requests.get(url=self.C.url + "/measurement/image")
+        img = Image.open(io.BytesIO(response.content))
+        self.image_ready.emit(np.array(img))
+
+        self.image_grabber_thread.quit()
+        log.debug(f"quit image_grabber_thread {self.image_grabber_thread.currentThread()}")
+
         # log.debug(f"started image_grabber_thread {self.image_grabber_thread.currentThread()}")
         # self.C.ntrigger = 1
         # self.C.arm()
@@ -100,9 +109,6 @@ class CheetahImageGrabber(QObject):
         #     sleep(0.05)
 
         # self.image_ready.emit(monitor_to_array(self.C.mon.last_image))
-
-        self.image_grabber_thread.quit()
-        log.debug(f"quit image_grabber_thread {self.image_grabber_thread.currentThread()}")
 
     def wait_for_state(self, state_name, logic=True):
         """
