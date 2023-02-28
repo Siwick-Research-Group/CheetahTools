@@ -8,6 +8,7 @@ from uedinst.cheetah import strip_awareattrdict
 from .. import get_base_path
 from ..lib.uiutils import (
     CheetahImageGrabber,
+    CheetahStatusGrabber,
     interrupt_acquisition,
     RectROI,
 )
@@ -46,33 +47,26 @@ class LiveViewUi(QtWidgets.QMainWindow):
         self.update_interval = cmd_args.update_interval
 
         self.lineEditExposure = QtWidgets.QLineEdit()
-        self.lineEditExposure.setText("300")
         self.cheetah_image_grabber = CheetahImageGrabber(
             cmd_args.ip,
             cmd_args.port,
         )
-        if self.cheetah_image_grabber.connected:
-            if self.cheetah_image_grabber.Q.counting_mode == "normal":
-                self.actionCmodeNormal.setChecked(True)
-            elif self.cheetah_image_grabber.Q.counting_mode == "retrigger":
-                self.actionCmodeRetrigger.setChecked(True)
-        # self.dectris_status_grabber = DectrisStatusGrabber(cmd_args.ip, cmd_args.port)
+        self.lineEditExposure.setText(f"{self.cheetah_image_grabber.exposure * 1000:.0f}")
+        self.cheetah_status_grabber = CheetahStatusGrabber(cmd_args.ip, cmd_args.port)
 
         self.image_timer = QtCore.QTimer()
         self.image_timer.timeout.connect(self.cheetah_image_grabber.image_grabber_thread.start)
         self.cheetah_image_grabber.image_ready.connect(self.update_image)
 
         self.status_timer = QtCore.QTimer()
-        # self.status_timer.timeout.connect(self.dectris_status_grabber.status_grabber_thread.start)
-        # self.dectris_status_grabber.status_ready.connect(self.update_status_labels)
+        self.status_timer.timeout.connect(self.cheetah_status_grabber.status_grabber_thread.start)
+        self.cheetah_status_grabber.status_ready.connect(self.update_status_labels)
 
         self.lineEditExposure.returnPressed.connect(self.update_exposure)
 
         self.labelIntensity = QtWidgets.QLabel()
         self.labelState = QtWidgets.QLabel()
-        self.labelTrigger = QtWidgets.QLabel()
         self.labelExposure = QtWidgets.QLabel()
-        self.labelCmode = QtWidgets.QLabel()
         self.labelStop = QtWidgets.QLabel()
         self.labelExposureUser = QtWidgets.QLabel()
 
@@ -100,7 +94,7 @@ class LiveViewUi(QtWidgets.QMainWindow):
         self.image_timer.stop()
         self.status_timer.stop()
         self.cheetah_image_grabber.image_grabber_thread.requestInterruption()
-        # self.dectris_status_grabber.status_grabber_thread.wait()
+        self.cheetah_status_grabber.status_grabber_thread.wait()
         self.cheetah_image_grabber.image_grabber_thread.wait()
         super().closeEvent(evt)
 
@@ -110,9 +104,7 @@ class LiveViewUi(QtWidgets.QMainWindow):
         status_label_font = QtGui.QFont("Courier", 9)
         self.labelIntensity.setFont(status_label_font)
         self.labelState.setFont(status_label_font)
-        self.labelTrigger.setFont(status_label_font)
         self.labelExposure.setFont(status_label_font)
-        self.labelCmode.setFont(status_label_font)
         self.labelStop.setFont(status_label_font)
         self.labelExposureUser.setFont(status_label_font)
         self.lineEditExposure.setFont(status_label_font)
@@ -130,9 +122,7 @@ class LiveViewUi(QtWidgets.QMainWindow):
         self.statusbar.addPermanentWidget(fake_spacer)
         self.statusbar.addPermanentWidget(self.labelIntensity)
         self.statusbar.addPermanentWidget(self.labelState)
-        self.statusbar.addPermanentWidget(self.labelTrigger)
         self.statusbar.addPermanentWidget(self.labelExposure)
-        self.statusbar.addPermanentWidget(self.labelCmode)
         self.statusbar.addPermanentWidget(self.labelStop)
 
     def init_menubar(self):
@@ -157,16 +147,12 @@ class LiveViewUi(QtWidgets.QMainWindow):
         self.viewer.ui.histogram.sigLevelsChanged.connect(self.pin_histogram_zero)
         self.viewer.ui.histogram.item.vb.sigRangeChangedManually.connect(self.pin_histogram_zero)
 
-        trigger_mode_group = QtWidgets.QActionGroup(self)
-        trigger_mode_group.addAction(self.actionINTS)
-        trigger_mode_group.addAction(self.actionEXTS)
-        trigger_mode_group.addAction(self.actionEXTE)
-        trigger_mode_group.addAction(self.actionStop)
-        trigger_mode_group.triggered.connect(self.update_trigger_mode)
-        self.actionINTS.setShortcut("Ctrl+1")
-        self.actionEXTS.setShortcut("Ctrl+2")
-        self.actionEXTE.setShortcut("Ctrl+3")
+        start_stop_group = QtWidgets.QActionGroup(self)
+        start_stop_group.addAction(self.actionStop)
+        start_stop_group.addAction(self.actionStart)
+        start_stop_group.triggered.connect(self.start_stop)
         self.actionStop.setShortcut("Esc")
+        self.actionStart.setShortcut("Space")
 
         counting_mode_group = QtWidgets.QActionGroup(self)
         counting_mode_group.addAction(self.actionCmodeNormal)
@@ -188,18 +174,8 @@ class LiveViewUi(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(dict)
     def update_status_labels(self, states):
-        if states["quadro"] is None:
-            self.labelState.setText(f'Detector: {"":>7s} Monitor: {"":>7s}')
-            self.labelTrigger.setText(f'Trigger: {"":>4s}')
-            self.labelExposure.setText(f'Exposure: {"":>5s}  ')
-            self.labelCmode.setText(f'Counting: {"":>9s}')
-        else:
-            self.labelState.setText(f'Detector: {states["quadro"]:>7s} Monitor: {states["mon"]:>7s}')
-            self.labelTrigger.setText(f'Trigger: {states["trigger_mode"]:>4s}')
-            if states["trigger_mode"] == "exts":
-                self.labelExposure.setText("Exposure:   trig ")
-            self.labelExposure.setText(f'Exposure: {states["exposure"] * 1000:>5.0f}ms')
-            self.labelCmode.setText(f'Counting: {states["counting_mode"]:>9s}')
+        self.labelState.setText(f'Detector: {states["state"]:>7s}')
+        self.labelExposure.setText(f'Exposure: {states["exposure"]:>4.1f}s')
 
     @QtCore.pyqtSlot(np.ndarray)
     def update_image(self, image):
@@ -235,28 +211,14 @@ class LiveViewUi(QtWidgets.QMainWindow):
 
     @interrupt_acquisition
     @QtCore.pyqtSlot()
-    def update_trigger_mode(self):
+    def start_stop(self):
         if self.actionStop.isChecked():
             self.labelStop.setText("🛑")
             self.image_timer.stop()
         else:
-            self.labelStop.setText("")
+            self.labelStop.setText("🟢")
             if not self.image_timer.isActive():
                 self.image_timer.start(self.update_interval)
-            if self.actionINTS.isChecked():
-                mode = "ints"
-                self.lineEditExposure.setEnabled(True)
-            elif self.actionEXTS.isChecked():
-                mode = "exts"
-                self.lineEditExposure.setEnabled(True)
-            else:
-                mode = "exte"
-                self.lineEditExposure.setEnabled(False)
-            log.info(f"changing trigger mode to {mode}")
-            if self.cheetah_image_grabber.connected:
-                self.cheetah_image_grabber.Q.trigger_mode = mode
-            else:
-                log.warning(f"could not change trigger mode, detector disconnected")
 
     @QtCore.pyqtSlot()
     def update_counting_mode(self):
@@ -276,11 +238,7 @@ class LiveViewUi(QtWidgets.QMainWindow):
             return
 
         log.info(f"changing exporue time to {time}")
-        if self.cheetah_image_grabber.connected:
-            self.cheetah_image_grabber.Q.count_time = time
-            self.cheetah_image_grabber.Q.frame_time = time
-        else:
-            log.warning(f"could not change exposure time, detector disconnected")
+        self.cheetah_image_grabber.exposure = time
 
     @interrupt_acquisition
     def update_destination(self):

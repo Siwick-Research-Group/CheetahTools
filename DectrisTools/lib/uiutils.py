@@ -30,37 +30,14 @@ class CheetahImageGrabber(QObject):
     exposure_triggered = pyqtSignal()
     connected = False
 
-    def __init__(self, ip, port, exposure=0.3):
+    def __init__(self, ip, port):
         super().__init__()
 
         self.C = Cheetah(ip, port)
-        # try:
-        #     _ = self.Q.state
-        #     self.connected = True
-        #     log.info(f"CheetagImageGrabber successfully connected to detector\n{self.Q}")
-        # except OSError:
-        #     log.warning("CheetagImageGrabber could not establish connection to detector")
-        #
-        # # prepare the hardware for taking images
-        # if self.connected:
-        #     if self.Q.state == "na":
-        #         log.warning("Detector needs to be initialized, that may take a while...")
-        #         self.Q.initialize()
-        #     self.Q.mon.clear()
-        #     self.Q.fw.clear()
-        #     self.Q.fw.mode = "disabled"
-        #     self.Q.mon.mode = "enabled"
-        #     self.Q.incident_energy = 1e5
-        #     self.Q.count_time = exposure
-        #     self.Q.frame_time = exposure
-        #     self.Q.trigger_mode = trigger_mode
-        #     self.Q.ntrigger = 1
 
         self.C._Cheetah__update_info()
         self.C.stop()
         self.C.Detector.Config.nTriggers = 1
-        self.C.Detector.Config.ExposureTime = exposure
-        self.C.Detector.Config.TriggerPeriod = exposure + 0.002 # hardware limitation
         self.C.Detector.Config.TriggerMode = "AUTOTRIGSTART_TIMERSTOP"
 
         self.image_grabber_thread = QThread()
@@ -75,10 +52,9 @@ class CheetahImageGrabber(QObject):
         print("starting measurement")
         self.C._Cheetah__update_info()
         self.C.preview()
-        sleep(0.05)
-        while True:
-            if self.C.Measurement.Info.Status == "DA_IDLE":
-                break
+        if not self.C.Measurement.Info.Status == "DA_IDLE":
+            print(self.C.Measurement.Info.Status)
+            return
 
         response = requests.get(url=self.C.url + "/measurement/image")
         img = Image.open(io.BytesIO(response.content))
@@ -86,29 +62,6 @@ class CheetahImageGrabber(QObject):
 
         self.image_grabber_thread.quit()
         log.debug(f"quit image_grabber_thread {self.image_grabber_thread.currentThread()}")
-
-        # log.debug(f"started image_grabber_thread {self.image_grabber_thread.currentThread()}")
-        # self.C.ntrigger = 1
-        # self.C.arm()
-        # # logic for different trigger modes
-        # if self.C.trigger_mode == "ints":
-        #     self.exposure_triggered.emit()
-        #     self.wait_for_state("idle")
-        #     self.C.trigger()
-        #     self.wait_for_state("idle", False)
-        #     self.C.disarm()
-        # if self.C.trigger_mode == "exts":
-        #     self.wait_for_state("ready")
-        #     self.exposure_triggered.emit()
-        #     self.wait_for_state("acquire")
-        # # wait until images appears in monitor
-        # while not self.C.mon.image_list:
-        #     if self.image_grabber_thread.isInterruptionRequested():
-        #         self.image_grabber_thread.quit()
-        #         return
-        #     sleep(0.05)
-
-        # self.image_ready.emit(monitor_to_array(self.C.mon.last_image))
 
     def wait_for_state(self, state_name, logic=True):
         """
@@ -128,57 +81,46 @@ class CheetahImageGrabber(QObject):
                 return
             sleep(0.05)
 
+    @property
+    def exposure(self):
+        return self.C.Detector.Config.ExposureTime
 
-# class DectrisStatusGrabber(QObject):
-#     """
-#     class for continiously retrieving status information from the DCU
-#     """
-#
-#     status_ready = pyqtSignal(dict)
-#     connected = False
-#
-#     def __init__(self, ip, port):
-#         super().__init__()
-#
-#         self.Q = Quadro(ip, port)
-#         try:
-#             _ = self.Q.state
-#             self.connected = True
-#             log.info("DectrisStatusGrabber successfully connected to detector")
-#         except OSError:
-#             log.warning("DectrisStatusGrabber could not establish connection to detector")
-#
-#         self.status_grabber_thread = QThread()
-#         self.moveToThread(self.status_grabber_thread)
-#         self.status_grabber_thread.started.connect(self.__get_status)
-#
-#     @pyqtSlot()
-#     def __get_status(self):
-#         log.debug(f"started status_grabber_thread {self.status_grabber_thread.currentThread()}")
-#         if self.connected:
-#             self.status_ready.emit(
-#                 {
-#                     "quadro": self.Q.state,
-#                     "fw": self.Q.fw.state,
-#                     "mon": self.Q.mon.state,
-#                     "trigger_mode": self.Q.trigger_mode,
-#                     "exposure": self.Q.frame_time,
-#                     "counting_mode": self.Q.counting_mode,
-#                 }
-#             )
-#         else:
-#             self.status_ready.emit(
-#                 {
-#                     "quadro": None,
-#                     "fw": None,
-#                     "mon": None,
-#                     "trigger_mode": None,
-#                     "exposure": None,
-#                     "counting_mode": None,
-#                 }
-#             )
-#         self.status_grabber_thread.quit()
-#         log.debug(f"quit status_grabber_thread {self.status_grabber_thread.currentThread()}")
+    @exposure.setter
+    def exposure(self, exposure_time):
+        if exposure_time > self.C.Detector.Config.TriggerPeriod + 0.002:
+            self.C.Detector.Config.TriggerPeriod = exposure_time + 0.002  # hardware limitation
+            self.C.Detector.Config.ExposureTime = exposure_time
+        else:
+            self.C.Detector.Config.ExposureTime = exposure_time
+            self.C.Detector.Config.TriggerPeriod = exposure_time + 0.002  # hardware limitation
+
+
+class CheetahStatusGrabber(QObject):
+    status_ready = pyqtSignal(dict)
+    connected = False
+
+    def __init__(self, ip, port):
+        super().__init__()
+
+        self.C = Cheetah(ip, port)
+        self.C._Cheetah__update_info()
+
+        self.status_grabber_thread = QThread()
+        self.moveToThread(self.status_grabber_thread)
+        self.status_grabber_thread.started.connect(self.__get_status)
+
+    @pyqtSlot()
+    def __get_status(self):
+        self.C._Cheetah__update_info()
+        log.debug(f"started status_grabber_thread {self.status_grabber_thread.currentThread()}")
+        self.status_ready.emit(
+            {
+                "state": self.C.Measurement.Info.Status,
+                "exposure": self.C.Detector.Config.ExposureTime,
+            }
+        )
+        self.status_grabber_thread.quit()
+        log.debug(f"quit status_grabber_thread {self.status_grabber_thread.currentThread()}")
 
 
 def interrupt_acquisition(f):
@@ -196,7 +138,7 @@ def interrupt_acquisition(f):
                 self.cheetah_image_grabber.image_grabber_thread.requestInterruption()
                 self.cheetah_image_grabber.image_grabber_thread.wait()
         f(self)
-        if not self.actionStop.isChecked():
+        if self.actionStart.isChecked():
             log.debug("restarting liveview")
             self.image_timer.start(self.update_interval)
 
