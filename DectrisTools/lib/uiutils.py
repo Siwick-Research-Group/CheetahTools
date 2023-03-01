@@ -55,6 +55,7 @@ class CheetahImageGrabber(QObject):
             self.C.stop()
         while True:
             sleep(0.05)
+            self.C._Cheetah__update_info()
             if self.C.Measurement.Info.Status == "DA_IDLE":
                 break
 
