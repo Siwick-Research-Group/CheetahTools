@@ -175,7 +175,7 @@ class LiveViewUi(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(dict)
     def update_status_labels(self, states):
         self.labelState.setText(f'Detector: {states["state"]:>7s}')
-        self.labelExposure.setText(f'Exposure: {states["exposure"]:>4.1f}s')
+        self.labelExposure.setText(f'Exposure: {states["exposure"]:>4.2f}s')
 
     @QtCore.pyqtSlot(np.ndarray)
     def update_image(self, image):

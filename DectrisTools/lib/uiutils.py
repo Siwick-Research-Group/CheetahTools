@@ -10,8 +10,8 @@ from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QThread
 from PyQt5.QtWidgets import QAction, QMenu
 import numpy as np
 import pyqtgraph as pg
-from PIL import Image
-from uedinst.cheetah import Cheetah
+from PIL import Image, UnidentifiedImageError
+from uedinst.cheetah import Cheetah, CheetahGetException
 
 
 def monitor_to_array(bytestring):
@@ -35,7 +35,6 @@ class CheetahImageGrabber(QObject):
 
         self.C = Cheetah(ip, port)
 
-        self.C._Cheetah__update_info()
         self.C.stop()
         self.C.Detector.Config.nTriggers = 1
         self.C.Detector.Config.TriggerMode = "AUTOTRIGSTART_TIMERSTOP"
@@ -50,14 +49,20 @@ class CheetahImageGrabber(QObject):
         image collection method
         """
         print("starting measurement")
-        self.C._Cheetah__update_info()
-        self.C.preview()
-        if not self.C.Measurement.Info.Status == "DA_IDLE":
-            print(self.C.Measurement.Info.Status)
-            return
+        try:
+            self.C.preview()
+        except CheetahGetException:
+            self.C.stop()
+        while True:
+            sleep(0.05)
+            if self.C.Measurement.Info.Status == "DA_IDLE":
+                break
 
         response = requests.get(url=self.C.url + "/measurement/image")
-        img = Image.open(io.BytesIO(response.content))
+        try:
+            img = Image.open(io.BytesIO(response.content))
+        except UnidentifiedImageError:
+            return
         self.image_ready.emit(np.array(img))
 
         self.image_grabber_thread.quit()
@@ -103,7 +108,6 @@ class CheetahStatusGrabber(QObject):
         super().__init__()
 
         self.C = Cheetah(ip, port)
-        self.C._Cheetah__update_info()
 
         self.status_grabber_thread = QThread()
         self.moveToThread(self.status_grabber_thread)
@@ -111,7 +115,6 @@ class CheetahStatusGrabber(QObject):
 
     @pyqtSlot()
     def __get_status(self):
-        self.C._Cheetah__update_info()
         log.debug(f"started status_grabber_thread {self.status_grabber_thread.currentThread()}")
         self.status_ready.emit(
             {
