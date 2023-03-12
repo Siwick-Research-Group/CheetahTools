@@ -1,15 +1,17 @@
 import warnings
-from sys.stdout import flush
 from argparse import ArgumentParser
 from random import shuffle
+import io
 from time import sleep, time
 from datetime import datetime
-from tqdm import tqdm
+import requests
 from os import rename, path, getcwd, mkdir
 import numpy as np
-from uedinst.dectris import Quadro
+from tqdm import tqdm
+from PIL import Image
+from uedinst.cheetah import Cheetah
 from uedinst.shutter import SC10Shutter
-from uedinst import ILS250PP
+from uedinst.delay_stage import XPSController
 from . import IP, PORT, TIMESTAMP_FORMAT
 
 
@@ -18,23 +20,23 @@ warnings.simplefilter("ignore", ResourceWarning)
 DIR_PUMP_OFF = "pump_off"
 DIR_LASER_BG = "laser_background"
 DIR_DARK = "dark_image"
-T0_POS = 27.1083
+T0_POS = 100
 
 
 def parse_args():
     parser = ArgumentParser(description="script to take single shot experiment")
-    parser.add_argument("--dcu_ip", type=str, default=IP, help="DCU ip address")
-    parser.add_argument("--dcu_port", type=int, default=PORT, help="DCU port")
+    parser.add_argument("--cheetah_ip", type=str, default=IP, help="cheetah ip address")
+    parser.add_argument("--cheetah_port", type=int, default=PORT, help="cheetah port")
     parser.add_argument(
         "--pump_shutter_port",
         type=str,
-        default="COM22",
+        default="COM27",
         help="com port of the shutter controller for the pump shutter",
     )
     parser.add_argument(
         "--probe_shutter_port",
         type=str,
-        default="COM20",
+        default="COM17",
         help="com port of the shutter controller for the probe shutter",
     )
     parser.add_argument(
@@ -46,7 +48,7 @@ def parse_args():
     parser.add_argument("--savedir", type=str, help="save directory")
     parser.add_argument("--n_scans", type=int, help="number of scans")
     parser.add_argument("--delays", type=str)
-    parser.add_argument("--exposure", type=float, default=30, help="exposure time of each image")
+    parser.add_argument("--exposure", type=float, default=10, help="exposure time of each image")
     args = parser.parse_args()
     return args
 
@@ -83,25 +85,43 @@ def parse_timedelays(time_str):
 def acquire_image(detector, savedir, scandir, filename):
     exception = None
     try:
-        detector.arm()
-        detector.trigger()
+        detector.preview()
         sleep(0.1)
-        while detector.state != "idle":
+        while True:
             sleep(0.05)
-        sleep(0.5)
-        for f in detector.fw.files:
-            detector.fw.save(f, savedir)
-            rename(path.join(savedir, f), path.join(savedir, scandir, filename))
-        detector.fw.clear()
-        detector.disarm()
+            detector._Cheetah__update_info()
+            if detector.Measurement.Info.Status == "DA_IDLE":
+                break
+
+        response = requests.get(url=detector.url + "/measurement/image")
+        img = Image.open(io.BytesIO(response.content))
+        img.save(path.join(savedir, scandir, filename))
+
     except TimeoutError as exception:
-        detector.fw.clear()
-        detector.disarm()
+        detector.stop()
     return exception
 
 
 def fmt_log(message):
     return f"{datetime.now().strftime(TIMESTAMP_FORMAT)} | {message}\n"
+
+
+def append_to_log(logfile, msg):
+    with open(logfile, "a") as f:
+        f.write(msg)
+
+
+def move_stages_to_time(xps, time):
+    new_pos =  xps.delay_stage.delay_to_distance(time) + T0_POS
+    if new_pos <= -100:
+        xps.compensation_stage.absolute_move(-120)
+        xps.delay_stage.absolute_time(time - xps.delay_stage.distance_to_delay(-120), T0_POS)
+    elif new_pos <= 100:
+        xps.compensation_stage.absolute_move(0)
+        xps.delay_stage.absolute_time(time, T0_POS)
+    else:
+        xps.compensation_stage.absolute_move(120)
+        xps.delay_stage.absolute_time(time - xps.delay_stage.distance_to_delay(120), T0_POS)
 
 
 def run(cmd_args):
@@ -111,87 +131,95 @@ def run(cmd_args):
     delays = parse_timedelays(cmd_args.delays)
 
     # prepare hardware for experiment
-    Q = Quadro(cmd_args.dcu_ip, cmd_args.dcu_port)
+    C = Cheetah(cmd_args.cheetah_ip, cmd_args.cheetah_port)
+    C._Cheetah__update_info()
 
-    Q.fw.nimages_per_file = 0
-    Q.fw.mode = "enabled"
-    Q.fw.clear()
-    Q.trigger_mode = "ints"
-    Q.mon.mode = "disabled"
-
-    Q.ntrigger = 1
-    Q.frame_time = cmd_args.exposure
-    Q.count_time = cmd_args.exposure
+    C.Detector.Config.nTriggers = 1
+    C.Detector.Config.TriggerMode = "AUTOTRIGSTART_TIMERSTOP"
+    C._Cheetah__update_info()
+    if cmd_args.exposure > C.Detector.Config.TriggerPeriod + 0.002:
+        C.Detector.Config.TriggerPeriod = cmd_args.exposure + 0.002  # hardware limitation
+        C.Detector.Config.ExposureTime = cmd_args.exposure
+    else:
+        C.Detector.Config.ExposureTime = cmd_args.exposure
+        C.Detector.Config.TriggerPeriod = cmd_args.exposure + 0.002  # hardware limitation
 
     s_pump = SC10Shutter(args.pump_shutter_port)
     s_pump.set_operating_mode("manual")
     s_probe = SC10Shutter(args.probe_shutter_port)
     s_probe.set_operating_mode("manual")
 
-    delay_stage = ILS250PP(cmd_args.delay_stage_ip)
+    xps = XPSController(cmd_args.delay_stage_ip)
 
     # start experiment
-    logfile = open(path.join(savedir, "experiment.log"), "w+")
+    log_filename = path.join(savedir, "experiment.log")
+    logfile = open(log_filename, "w+")
     logfile.write(fmt_log(f"starting experiment with {cmd_args.n_scans} scans at {len(delays)} delays"))
-    flush()
+    logfile.close()
     try:
-        mkdir(path.join(savedir, DIR_LASER_BG))
-        mkdir(path.join(savedir, DIR_PUMP_OFF))
-        mkdir(path.join(savedir, DIR_DARK))
-        for i in tqdm(range(cmd_args.n_scans), desc="scans"):
+        try:
+            mkdir(path.join(savedir, DIR_LASER_BG))
+        except FileExistsError:
+            pass
+        try:
+            mkdir(path.join(savedir, DIR_PUMP_OFF))
+        except FileExistsError:
+            pass
+        try:
+            mkdir(path.join(savedir, DIR_DARK))
+        except FileExistsError:
+            pass
+        for i in tqdm(range(cmd_args.n_scans), desc="scans", disable=False):
             s_pump.enable(False)
             s_probe.enable(False)
             while True:
-                exception = acquire_image(Q, savedir, DIR_LASER_BG, f"dark_epoch_{time():010.0f}s.tif")
+                exception = acquire_image(C, savedir, DIR_DARK, f"dark_epoch_{time():010.0f}s.tif")
                 if exception:
-                    logfile.write(fmt_log(str(exception)))
+                    append_to_log(log_filename, fmt_log(str(exception)))
                 else:
                     break
             s_pump.enable(True)
             s_probe.enable(False)
             while True:
-                exception = acquire_image(Q, savedir, DIR_LASER_BG, f"laser_bg_epoch_{time():010.0f}s.tif")
+                exception = acquire_image(C, savedir, DIR_LASER_BG, f"laser_bg_epoch_{time():010.0f}s.tif")
                 if exception:
-                    logfile.write(fmt_log(str(exception)))
+                    append_to_log(log_filename, fmt_log(str(exception)))
                 else:
                     break
-            logfile.write(fmt_log("laser background image acquired"))
+            append_to_log(log_filename, fmt_log("laser background image acquired"))
             s_pump.enable(False)
             s_probe.enable(True)
             while True:
-                exception = acquire_image(Q, savedir, DIR_PUMP_OFF, f"pump_off_epoch_{time():010.0f}s.tif")
+                exception = acquire_image(C, savedir, DIR_PUMP_OFF, f"pump_off_epoch_{time():010.0f}s.tif")
                 if exception:
-                    logfile.write(fmt_log(str(exception)))
+                    append_to_log(log_filename, fmt_log(str(exception)))
                 else:
                     break
-            logfile.write(fmt_log("pump off image acquired"))
+            append_to_log(log_filename, fmt_log("pump off image acquired"))
             s_pump.enable(True)
 
             scandir = f"scan_{i+1:04d}"
             mkdir(path.join(savedir, scandir))
             shuffle(delays)
-            for delay in tqdm(delays, leave=False, desc="delay steps"):
+            for delay in tqdm(delays, leave=False, desc="delay steps", disable=False):
                 filename = f"pumpon_{delay:+010.3f}ps.tif"
 
-                delay_stage.absolute_time(delay, T0_POS)
-                delay_stage._wait_end_of_move()
+                move_stages_to_time(xps, delay)
+                xps.delay_stage._wait_end_of_move()
                 while True:
-                    exception = acquire_image(Q, savedir, scandir, filename)
+                    exception = acquire_image(C, savedir, scandir, filename)
                     if exception:
-                        logfile.write(fmt_log(str(exception)))
+                        append_to_log(log_filename, fmt_log(str(exception)))
                     else:
                         break
-                logfile.write(fmt_log(f"pump on image acquired at scan {i+1} and time-delay {delay:.1f}ps"))
-                flush()
+                append_to_log(log_filename, fmt_log(f"pump on image acquired at scan {i+1} and time-delay {delay:.1f}ps"))
 
         s_pump.enable(False)
         s_probe.enable(False)
-        logfile.write(fmt_log("EXPERIMENT COMPLETE"))
-        logfile.close()
+        append_to_log(log_filename, fmt_log("EXPERIMENT COMPLETE"))
         print("🍻")
     except Exception as e:
-        logfile.write(fmt_log(str(e)))
-        logfile.close()
+        append_to_log(log_filename, fmt_log(str(e)))
         raise e
 
 
