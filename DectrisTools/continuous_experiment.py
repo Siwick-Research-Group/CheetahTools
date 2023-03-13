@@ -48,7 +48,9 @@ def parse_args():
     parser.add_argument("--savedir", type=str, help="save directory")
     parser.add_argument("--n_scans", type=int, help="number of scans")
     parser.add_argument("--delays", type=str)
-    parser.add_argument("--exposure", type=float, default=10, help="exposure time of each image")
+    parser.add_argument(
+        "--exposure", type=float, default=10, help="exposure time of each image"
+    )
     args = parser.parse_args()
     return args
 
@@ -112,16 +114,20 @@ def append_to_log(logfile, msg):
 
 
 def move_stages_to_time(xps, time):
-    new_pos =  xps.delay_stage.delay_to_distance(time) + T0_POS
+    new_pos = xps.delay_stage.delay_to_distance(time) + T0_POS
     if new_pos <= -100:
         xps.compensation_stage.absolute_move(-120)
-        xps.delay_stage.absolute_time(time - xps.delay_stage.distance_to_delay(-120), T0_POS)
+        xps.delay_stage.absolute_time(
+            time - xps.delay_stage.distance_to_delay(-120), T0_POS
+        )
     elif new_pos <= 100:
         xps.compensation_stage.absolute_move(0)
         xps.delay_stage.absolute_time(time, T0_POS)
     else:
         xps.compensation_stage.absolute_move(120)
-        xps.delay_stage.absolute_time(time - xps.delay_stage.distance_to_delay(120), T0_POS)
+        xps.delay_stage.absolute_time(
+            time - xps.delay_stage.distance_to_delay(120), T0_POS
+        )
 
 
 def run(cmd_args):
@@ -132,17 +138,40 @@ def run(cmd_args):
 
     # prepare hardware for experiment
     C = Cheetah(cmd_args.cheetah_ip, cmd_args.cheetah_port)
+    C.Server.Destination = {
+        "Preview": {
+            "Period": 0.2,
+            "SamplingMode": "skipOnFrame",
+            "ImageChannels": [
+                {
+                    "Base": "http://192.168.254.236",
+                    "Format": "tiff",
+                    "Mode": "tot",
+                    "Thresholds": [0, 1, 2, 3, 4, 5, 6, 7],
+                    "IntegrationSize": 0,
+                    "StopMeasurementOnDiskLimit": False,
+                    "QueueSize": 16,
+                    "Corrections": [],
+                }
+            ],
+        }
+    }
+
     C._Cheetah__update_info()
 
     C.Detector.Config.nTriggers = 1
     C.Detector.Config.TriggerMode = "AUTOTRIGSTART_TIMERSTOP"
     C._Cheetah__update_info()
     if cmd_args.exposure > C.Detector.Config.TriggerPeriod + 0.002:
-        C.Detector.Config.TriggerPeriod = cmd_args.exposure + 0.002  # hardware limitation
+        C.Detector.Config.TriggerPeriod = (
+            cmd_args.exposure + 0.002
+        )  # hardware limitation
         C.Detector.Config.ExposureTime = cmd_args.exposure
     else:
         C.Detector.Config.ExposureTime = cmd_args.exposure
-        C.Detector.Config.TriggerPeriod = cmd_args.exposure + 0.002  # hardware limitation
+        C.Detector.Config.TriggerPeriod = (
+            cmd_args.exposure + 0.002
+        )  # hardware limitation
 
     s_pump = SC10Shutter(args.pump_shutter_port)
     s_pump.set_operating_mode("manual")
@@ -154,7 +183,11 @@ def run(cmd_args):
     # start experiment
     log_filename = path.join(savedir, "experiment.log")
     logfile = open(log_filename, "w+")
-    logfile.write(fmt_log(f"starting experiment with {cmd_args.n_scans} scans at {len(delays)} delays"))
+    logfile.write(
+        fmt_log(
+            f"starting experiment with {cmd_args.n_scans} scans at {len(delays)} delays"
+        )
+    )
     logfile.close()
     try:
         try:
@@ -173,7 +206,9 @@ def run(cmd_args):
             s_pump.enable(False)
             s_probe.enable(False)
             while True:
-                exception = acquire_image(C, savedir, DIR_DARK, f"dark_epoch_{time():010.0f}s.tif")
+                exception = acquire_image(
+                    C, savedir, DIR_DARK, f"dark_epoch_{time():010.0f}s.tif"
+                )
                 if exception:
                     append_to_log(log_filename, fmt_log(str(exception)))
                 else:
@@ -181,7 +216,9 @@ def run(cmd_args):
             s_pump.enable(True)
             s_probe.enable(False)
             while True:
-                exception = acquire_image(C, savedir, DIR_LASER_BG, f"laser_bg_epoch_{time():010.0f}s.tif")
+                exception = acquire_image(
+                    C, savedir, DIR_LASER_BG, f"laser_bg_epoch_{time():010.0f}s.tif"
+                )
                 if exception:
                     append_to_log(log_filename, fmt_log(str(exception)))
                 else:
@@ -190,7 +227,9 @@ def run(cmd_args):
             s_pump.enable(False)
             s_probe.enable(True)
             while True:
-                exception = acquire_image(C, savedir, DIR_PUMP_OFF, f"pump_off_epoch_{time():010.0f}s.tif")
+                exception = acquire_image(
+                    C, savedir, DIR_PUMP_OFF, f"pump_off_epoch_{time():010.0f}s.tif"
+                )
                 if exception:
                     append_to_log(log_filename, fmt_log(str(exception)))
                 else:
@@ -212,7 +251,12 @@ def run(cmd_args):
                         append_to_log(log_filename, fmt_log(str(exception)))
                     else:
                         break
-                append_to_log(log_filename, fmt_log(f"pump on image acquired at scan {i+1} and time-delay {delay:.1f}ps"))
+                append_to_log(
+                    log_filename,
+                    fmt_log(
+                        f"pump on image acquired at scan {i+1} and time-delay {delay:.1f}ps"
+                    ),
+                )
 
         s_pump.enable(False)
         s_probe.enable(False)
